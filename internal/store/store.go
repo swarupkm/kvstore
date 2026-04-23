@@ -3,8 +3,11 @@ package store
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/btree"
 )
 
 type Store struct {
@@ -99,6 +102,25 @@ func (s *Store) Range(start, end string) []string {
 		}
 	}
 	return live
+}
+
+func (s *Store) Prefix(prefix string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []string
+	s.index.tree.AscendGreaterOrEqual(btreeItem(prefix), func(item btree.Item) bool {
+		key := string(item.(btreeItem))
+		// stop as soon as key no longer starts with prefix
+		if !strings.HasPrefix(key, prefix) {
+			return false
+		}
+		if e, ok := s.data[key]; ok && !e.isExpired() {
+			result = append(result, key)
+		}
+		return true
+	})
+	return result
 }
 
 func (s *Store) Stats() Stats {

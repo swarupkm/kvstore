@@ -146,6 +146,22 @@ func (s *Server) handleConn(conn net.Conn) {
 				continue
 			}
 			fmt.Fprintln(conn, val)
+		case "PREFIX":
+			if len(parts) != 2 {
+				fmt.Fprintln(conn, "ERR usage: PREFIX <prefix>")
+				fmt.Fprintln(conn, "")
+				continue
+			}
+			keys := s.store.Prefix(parts[1])
+			if len(keys) == 0 {
+				fmt.Fprintln(conn, "(empty)")
+				fmt.Fprintln(conn, "")
+				continue
+			}
+			for _, k := range keys {
+				fmt.Fprintln(conn, k)
+			}
+			fmt.Fprintln(conn, "")
 		default:
 			fmt.Fprintln(conn, "ERR unknown command")
 		}

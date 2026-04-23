@@ -24,7 +24,7 @@ func main() {
 	defer conn.Close()
 
 	fmt.Printf("Connected to %s\n", addr)
-	fmt.Println("Commands: SET <key> <value> | GET <key> | DEL <key> | SETEX <key> <seconds> <value> | INCR <key> | KEYS | STATS | COMPACT | EXIT")
+	fmt.Println("Commands: SET <key> <value> | GET <key> | DEL <key> | SETEX <key> <seconds> <value> | INCR <key> | PREFIX <key> | KEYS | STATS | COMPACT | EXIT")
 	fmt.Println()
 
 	input := bufio.NewScanner(os.Stdin)
@@ -54,7 +54,7 @@ func main() {
 		cmd := strings.ToUpper(parts[0])
 
 		switch cmd {
-		case "KEYS", "RANGE":
+		case "KEYS", "RANGE", "PREFIX":
 			// multi-line response — read until blank line sentinel
 			for response.Scan() {
 				text := response.Text()
