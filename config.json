@@ -1,0 +1,5 @@
+{
+    "address": ":5379",
+    "wal_path": "kvstore.wal",
+    "compaction_interval_seconds": 300
+}
