@@ -90,13 +90,13 @@ func (s *Server) handleConn(conn net.Conn) {
 				fmt.Fprintln(conn, "ERR usage: SETEX <key> <seconds> <value>")
 				continue
 			}
-			secs, err := strconv.Atoi(parts[2])
+			secs, err := strconv.Atoi(parts[3])
 			if err != nil || secs <= 0 {
 				fmt.Fprintln(conn, "ERR seconds must be a positive integer")
 				continue
 			}
 			ttl := time.Duration(secs) * time.Second
-			if err := s.store.SetWithTTL(parts[1], parts[3], ttl); err != nil {
+			if err := s.store.SetWithTTL(parts[1], parts[2], ttl); err != nil {
 				fmt.Fprintln(conn, "ERR", err)
 				continue
 			}

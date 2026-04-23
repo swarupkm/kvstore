@@ -29,7 +29,7 @@ func New(wal *WAL) *Store {
 }
 
 func (s *Store) Set(key, value string) error {
-	if err := s.wal.Write("SET", key, value); err != nil {
+	if err := s.wal.Write("SET", key, value, 0); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -41,14 +41,15 @@ func (s *Store) Set(key, value string) error {
 }
 
 func (s *Store) SetWithTTL(key, value string, ttl time.Duration) error {
-	if err := s.wal.Write("SET", key, value); err != nil {
+	expiresAt := time.Now().Add(ttl)
+	if err := s.wal.Write("SET", key, value, expiresAt.UnixNano()); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.data[key] = entry{
 		value:     value,
-		expiresAt: time.Now().Add(ttl),
+		expiresAt: expiresAt,
 	}
 	s.index.add(key)
 	s.metrics.incSets()
@@ -67,7 +68,7 @@ func (s *Store) Get(key string) (string, bool) {
 }
 
 func (s *Store) Delete(key string) error {
-	if err := s.wal.Write("DEL", key, ""); err != nil {
+	if err := s.wal.Write("DEL", key, "", 0); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -141,7 +142,7 @@ func (s *Store) Stats() Stats {
 }
 
 func (s *Store) Increment(key string) (int64, error) {
-	if err := s.wal.Write("INCR", key, ""); err != nil {
+	if err := s.wal.Write("INCR", key, "", 0); err != nil {
 		return 0, err
 	}
 	s.mu.Lock()
