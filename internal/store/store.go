@@ -1,6 +1,8 @@
 package store
 
 import (
+	"fmt"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -114,6 +116,29 @@ func (s *Store) Stats() Stats {
 		Gets:    s.metrics.gets.Load(),
 		Deletes: s.metrics.deletes.Load(),
 	}
+}
+
+func (s *Store) Increment(key string) (int64, error) {
+	if err := s.wal.Write("INCR", key, ""); err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var current int64
+	if e, ok := s.data[key]; ok && !e.isExpired() {
+		parsed, err := strconv.ParseInt(e.value, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("value at '%s' is not an integer", key)
+		}
+		current = parsed
+	}
+
+	current++
+	s.data[key] = entry{value: strconv.FormatInt(current, 10)}
+	s.index.add(key)
+	s.metrics.incSets()
+	return current, nil
 }
 
 func (s *Store) Compact() error {

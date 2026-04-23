@@ -45,6 +45,8 @@ func (w *WAL) Replay(s *Store) error {
 			s.Set(key, value)
 		case "DEL":
 			s.Delete(key)
+		case "INCR":
+			s.Increment(key)
 		}
 	}
 	return scanner.Err()

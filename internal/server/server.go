@@ -135,6 +135,17 @@ func (s *Server) handleConn(conn net.Conn) {
 				fmt.Fprintln(conn, k)
 			}
 			fmt.Fprintln(conn, "")
+		case "INCR":
+			if len(parts) != 2 {
+				fmt.Fprintln(conn, "ERR usage: INCR <key>")
+				continue
+			}
+			val, err := s.store.Increment(parts[1])
+			if err != nil {
+				fmt.Fprintln(conn, "ERR", err)
+				continue
+			}
+			fmt.Fprintln(conn, val)
 		default:
 			fmt.Fprintln(conn, "ERR unknown command")
 		}

@@ -24,7 +24,7 @@ func main() {
 	defer conn.Close()
 
 	fmt.Printf("Connected to %s\n", addr)
-	fmt.Println("Commands: SET <key> <value> | GET <key> | DEL <key> | SETEX <key> <seconds> <value> | KEYS | STATS | COMPACT | EXIT")
+	fmt.Println("Commands: SET <key> <value> | GET <key> | DEL <key> | SETEX <key> <seconds> <value> | INCR <key> | KEYS | STATS | COMPACT | EXIT")
 	fmt.Println()
 
 	input := bufio.NewScanner(os.Stdin)
