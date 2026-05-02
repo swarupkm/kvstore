@@ -6,11 +6,17 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 type WAL struct {
-	file *os.File
+	mu      sync.Mutex
+	file    *os.File
+	writer  *bufio.Writer
+	pending int           // writes since last fsync
+	ticker  *time.Ticker  // group commit ticker
+	done    chan struct{}
 }
 
 func OpenWAL(path string) (*WAL, error) {
@@ -18,17 +24,53 @@ func OpenWAL(path string) (*WAL, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &WAL{file: f}, nil
+
+	w := &WAL{
+		file:   f,
+		writer: bufio.NewWriterSize(f, 64*1024), // 64KB buffer
+		ticker: time.NewTicker(time.Millisecond),
+		done:   make(chan struct{}),
+	}
+
+	go w.runSync()
+	return w, nil
 }
 
-// Write appends an operation to the WAL.
-// expireAt is a Unix nanosecond timestamp, 0 means no expiry.
+// runSync flushes and fsyncs the WAL every millisecond if there are pending writes
+func (w *WAL) runSync() {
+	for {
+		select {
+		case <-w.ticker.C:
+			w.mu.Lock()
+			if w.pending > 0 {
+				w.writer.Flush()
+				w.file.Sync()
+				w.pending = 0
+			}
+			w.mu.Unlock()
+		case <-w.done:
+			return
+		}
+	}
+}
+
 func (w *WAL) Write(op, key, value string, expireAt int64) error {
-	_, err := fmt.Fprintf(w.file, "%s\t%s\t%s\t%d\n", op, key, value, expireAt)
-	return err
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, err := fmt.Fprintf(w.writer, "%s\t%s\t%s\t%d\n", op, key, value, expireAt)
+	if err != nil {
+		return err
+	}
+	w.pending++
+	return nil
 }
 
 func (w *WAL) Replay(s *Store) error {
+	// flush anything buffered before reading
+	w.mu.Lock()
+	w.writer.Flush()
+	w.mu.Unlock()
+
 	if _, err := w.file.Seek(0, 0); err != nil {
 		return err
 	}
@@ -58,7 +100,6 @@ func (w *WAL) Replay(s *Store) error {
 				if ttl > 0 {
 					s.SetWithTTL(key, value, ttl)
 				}
-				// if ttl <= 0 the key already expired — skip it
 			} else {
 				s.Set(key, value)
 			}
@@ -106,6 +147,13 @@ func (w *WAL) Compact(s *Store) error {
 		os.Remove(tmpPath)
 		return err
 	}
+
+	// fsync the compacted file before renaming
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
 	tmp.Close()
 
 	if err := os.Rename(tmpPath, w.file.Name()); err != nil {
@@ -113,15 +161,27 @@ func (w *WAL) Compact(s *Store) error {
 		return err
 	}
 
+	w.mu.Lock()
 	newFile, err := os.OpenFile(w.file.Name(), os.O_APPEND|os.O_RDWR, 0644)
 	if err != nil {
+		w.mu.Unlock()
 		return err
 	}
 	w.file.Close()
 	w.file = newFile
+	w.writer = bufio.NewWriterSize(newFile, 64*1024)
+	w.mu.Unlock()
+
 	return nil
 }
 
 func (w *WAL) Close() error {
+	w.ticker.Stop()
+	close(w.done)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.writer.Flush()
+	w.file.Sync()
 	return w.file.Close()
 }
