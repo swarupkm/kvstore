@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"kvstore/internal/config"
+	"kvstore/internal/replication"
 	"kvstore/internal/server"
 	"kvstore/internal/store"
 )
@@ -28,7 +29,22 @@ func main() {
 		log.Fatalf("failed to replay WAL: %v", err)
 	}
 
-	// auto-compaction in background
+	// primary mode: stream WAL to replicas
+	if cfg.ReplicationAddr != "" && cfg.ReplicaOf == "" {
+		primary := replication.NewPrimary()
+		if err := primary.Listen(cfg.ReplicationAddr); err != nil {
+			log.Fatalf("replication listener failed: %v", err)
+		}
+		wal.SetStreamer(primary)
+	}
+
+	// replica mode: connect to primary and apply entries
+	if cfg.ReplicaOf != "" {
+		replica := replication.NewReplica(cfg.ReplicaOf, s)
+		replica.Start()
+		fmt.Println("running as replica of", cfg.ReplicaOf)
+	}
+
 	go runAutoCompaction(s, time.Duration(cfg.CompactionIntervalSeconds)*time.Second)
 
 	srv, err := server.New(cfg.Address, s)
@@ -36,27 +52,18 @@ func main() {
 		log.Fatalf("failed to start server: %v", err)
 	}
 
-	// listen for Ctrl+C or kill signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
-	// start server in background goroutine
 	go srv.Start()
 
-	// block until signal received
 	sig := <-quit
 	fmt.Printf("\nreceived signal: %s\n", sig)
 	fmt.Println("compacting WAL before shutdown...")
-
 	if err := s.Compact(); err != nil {
 		log.Printf("compaction error: %v", err)
 	}
-
 	fmt.Println("closing WAL...")
-	if err := wal.Close(); err != nil {
-		log.Printf("WAL close error: %v", err)
-	}
-
+	wal.Close()
 	fmt.Println("kvstore shutdown complete.")
 }
 

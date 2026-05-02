@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// Streamer receives WAL entries for replication
+type Streamer interface {
+	Send(line string)
+}
+
 type WAL struct {
 	mu      sync.Mutex
 	file    *os.File
@@ -17,6 +22,7 @@ type WAL struct {
 	pending int           // writes since last fsync
 	ticker  *time.Ticker  // group commit ticker
 	done    chan struct{}
+	streamer Streamer
 }
 
 func OpenWAL(path string) (*WAL, error) {
@@ -34,6 +40,12 @@ func OpenWAL(path string) (*WAL, error) {
 
 	go w.runSync()
 	return w, nil
+}
+
+func (w *WAL) SetStreamer(s Streamer) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.streamer = s
 }
 
 // runSync flushes and fsyncs the WAL every millisecond if there are pending writes
@@ -57,11 +69,15 @@ func (w *WAL) runSync() {
 func (w *WAL) Write(op, key, value string, expireAt int64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	_, err := fmt.Fprintf(w.writer, "%s\t%s\t%s\t%d\n", op, key, value, expireAt)
+	line := fmt.Sprintf("%s\t%s\t%s\t%d", op, key, value, expireAt)
+	_, err := fmt.Fprintln(w.writer, line)
 	if err != nil {
 		return err
 	}
 	w.pending++
+	if w.streamer != nil {
+		w.streamer.Send(line)
+	}
 	return nil
 }
 

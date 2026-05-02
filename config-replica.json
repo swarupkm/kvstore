@@ -1,0 +1,6 @@
+{
+  "address": ":5381",
+  "wal_path": "replica.wal",
+  "compaction_interval_seconds": 300,
+  "replica_of": "localhost:5380"
+}

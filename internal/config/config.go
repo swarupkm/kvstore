@@ -9,6 +9,8 @@ type Config struct {
 	Address                   string `json:"address"`
 	WALPath                   string `json:"wal_path"`
 	CompactionIntervalSeconds int    `json:"compaction_interval_seconds"`
+	ReplicationAddr           string `json:"replication_addr"`
+	ReplicaOf                 string `json:"replica_of"`
 }
 
 func Load(path string) (*Config, error) {

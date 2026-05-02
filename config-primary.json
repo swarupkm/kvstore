@@ -1,0 +1,6 @@
+{
+  "address": ":5379",
+  "wal_path": "primary.wal",
+  "compaction_interval_seconds": 300,
+  "replication_addr": ":5380"
+}
