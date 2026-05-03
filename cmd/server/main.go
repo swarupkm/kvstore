@@ -1,6 +1,8 @@
 package main
 
 import (
+	_ "net/http/pprof"
+	"net/http"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -54,6 +56,10 @@ func main() {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		log.Println("pprof listening on :6060")
+		log.Println(http.ListenAndServe(":6060", nil))
+	}()
 	go srv.Start()
 
 	sig := <-quit
