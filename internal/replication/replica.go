@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,15 +20,19 @@ type Applier interface {
 type Replica struct {
 	primaryAddr string
 	store       Applier
+	offset      atomic.Uint64
 }
 
 func NewReplica(primaryAddr string, store Applier) *Replica {
 	return &Replica{primaryAddr: primaryAddr, store: store}
 }
 
-// Start connects to the primary and begins streaming WAL entries
 func (r *Replica) Start() {
 	go r.run()
+}
+
+func (r *Replica) Offset() uint64 {
+	return r.offset.Load()
 }
 
 func (r *Replica) run() {
@@ -45,13 +50,38 @@ func (r *Replica) connect() error {
 		return err
 	}
 	defer conn.Close()
-	fmt.Println("connected to primary at", r.primaryAddr)
 
+	writer := bufio.NewWriter(conn)
 	scanner := bufio.NewScanner(conn)
+
+	// send our current offset so primary can replay missed entries
+	currentOffset := r.offset.Load()
+	fmt.Fprintf(writer, "OFFSET %d\n", currentOffset)
+	writer.Flush()
+	fmt.Printf("connected to primary, sending offset: %d\n", currentOffset)
+
 	for scanner.Scan() {
-		if err := r.applyEntry(scanner.Text()); err != nil {
-			fmt.Println("apply error:", err)
+		line := scanner.Text()
+		// wire format: "<offset>\t<op>\t<key>\t<value>\t<expireAt>"
+		idx := strings.Index(line, "\t")
+		if idx == -1 {
+			continue
 		}
+		offsetStr := line[:idx]
+		entry := line[idx+1:]
+
+		offset, err := strconv.ParseUint(offsetStr, 10, 64)
+		if err != nil {
+			continue
+		}
+
+		if err := r.applyEntry(entry); err != nil {
+			fmt.Println("apply error:", err)
+			continue
+		}
+
+		// advance our offset
+		r.offset.Store(offset)
 	}
 	return scanner.Err()
 }

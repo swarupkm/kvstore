@@ -13,6 +13,7 @@ import (
 type Server struct {
 	store    *store.Store
 	listener net.Listener
+	replicaOffset func() uint64 // nil on primary
 }
 
 func New(addr string, s *store.Store) (*Server, error) {
@@ -21,6 +22,10 @@ func New(addr string, s *store.Store) (*Server, error) {
 		return nil, err
 	}
 	return &Server{store: s, listener: ln}, nil
+}
+
+func (s *Server) SetReplicaOffsetFunc(f func() uint64) {
+	s.replicaOffset = f
 }
 
 func (s *Server) Start() {
@@ -162,6 +167,15 @@ func (s *Server) handleConn(conn net.Conn) {
 				fmt.Fprintln(conn, k)
 			}
 			fmt.Fprintln(conn, "")
+		case "INFO":
+			st := s.store.Stats()
+			fmt.Fprintf(conn, "keys:            %d\n", st.Keys)
+			fmt.Fprintf(conn, "sets:            %d\n", st.Sets)
+			fmt.Fprintf(conn, "gets:            %d\n", st.Gets)
+			fmt.Fprintf(conn, "deletes:         %d\n", st.Deletes)
+			if s.replicaOffset != nil {
+				fmt.Fprintf(conn, "replica_offset:  %d\n", s.replicaOffset())
+			}
 		default:
 			fmt.Fprintln(conn, "ERR unknown command")
 		}

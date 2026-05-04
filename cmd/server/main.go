@@ -1,11 +1,11 @@
 package main
 
 import (
-	_ "net/http/pprof"
-	"net/http"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -38,38 +38,49 @@ func main() {
 			log.Fatalf("replication listener failed: %v", err)
 		}
 		wal.SetStreamer(primary)
+		log.Printf("running as primary, replication on %s", cfg.ReplicationAddr)
 	}
-
-	// replica mode: connect to primary and apply entries
-	if cfg.ReplicaOf != "" {
-		replica := replication.NewReplica(cfg.ReplicaOf, s)
-		replica.Start()
-		fmt.Println("running as replica of", cfg.ReplicaOf)
-	}
-
-	go runAutoCompaction(s, time.Duration(cfg.CompactionIntervalSeconds)*time.Second)
 
 	srv, err := server.New(cfg.Address, s)
 	if err != nil {
 		log.Fatalf("failed to start server: %v", err)
 	}
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	// replica mode: connect to primary and apply entries
+	if cfg.ReplicaOf != "" {
+		replica := replication.NewReplica(cfg.ReplicaOf, s)
+		replica.Start()
+		srv.SetReplicaOffsetFunc(replica.Offset)
+		log.Printf("running as replica of %s", cfg.ReplicaOf)
+	}
+
+	// auto-compaction
+	go runAutoCompaction(s, time.Duration(cfg.CompactionIntervalSeconds)*time.Second)
+
+	// pprof profiling server
 	go func() {
 		log.Println("pprof listening on :6060")
 		log.Println(http.ListenAndServe(":6060", nil))
 	}()
-	go srv.Start()
 
+	// start kvstore server
+	go srv.Start()
+	log.Printf("kvstore listening on %s", cfg.Address)
+
+	// block until signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
+
 	fmt.Printf("\nreceived signal: %s\n", sig)
 	fmt.Println("compacting WAL before shutdown...")
 	if err := s.Compact(); err != nil {
 		log.Printf("compaction error: %v", err)
 	}
 	fmt.Println("closing WAL...")
-	wal.Close()
+	if err := wal.Close(); err != nil {
+		log.Printf("WAL close error: %v", err)
+	}
 	fmt.Println("kvstore shutdown complete.")
 }
 
